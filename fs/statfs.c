@@ -86,7 +86,6 @@ EXPORT_SYMBOL(vfs_get_fsid);
 int vfs_statfs(const struct path *path, struct kstatfs *buf)
 {
 	int error;
-
 	error = statfs_by_dentry(path->dentry, buf);
 	if (!error)
 		buf->f_flags = calculate_f_flags(path->mnt);

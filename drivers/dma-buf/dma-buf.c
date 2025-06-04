@@ -179,7 +179,6 @@ static char *dmabuffs_dname(struct dentry *dentry, char *buffer, int buflen)
 
 static void dma_buf_release(struct dentry *dentry)
 {
-	struct dma_buf_ext *dmabuf_ext;
 	struct dma_buf *dmabuf;
 
 	dmabuf = dentry->d_fsdata;
@@ -202,15 +201,13 @@ static void dma_buf_release(struct dentry *dentry)
 	if (dmabuf->resv == (struct dma_resv *)&dmabuf[1])
 		dma_resv_fini(dmabuf->resv);
 
-	dmabuf_ext = get_dmabuf_ext(dmabuf);
-	if (unlikely(atomic64_read(&dmabuf_ext->nr_task_refs)))
-		pr_alert("destroying dmabuf with non-zero task refs, %lld\n",
-			 atomic64_read(&dmabuf_ext->nr_task_refs));
+	if (atomic64_read(&dmabuf->nr_task_refs))
+		pr_alert("destroying dmabuf with non-zero task refs\n");
 
 	WARN_ON(!list_empty(&dmabuf->attachments));
 	module_put(dmabuf->owner);
 	kfree(dmabuf->name);
-	kfree(dmabuf_ext);
+	kfree(dmabuf);
 }
 
 static int dma_buf_file_release(struct inode *inode, struct file *file)
@@ -414,7 +411,7 @@ static void add_task_dmabuf_record(struct task_dma_buf_info *dmabuf_info,
  */
 int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task)
 {
-	struct task_dma_buf_info *dmabuf_info;
+	struct task_dma_buf_info *dmabuf_info = task->dmabuf_info;
 	struct task_dma_buf_record *rec;
 
 	if (!static_key_enabled(&dmabuf_accounting_key))
@@ -422,12 +419,6 @@ int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task)
 
 	if (!dmabuf_info)
 		return 0;
-
-	if (IS_ERR(dmabuf_info)) {
-		pr_err("dmabuf accounting record is missing, error %ld\n",
-			PTR_ERR(dmabuf_info));
-		return PTR_ERR(dmabuf_info);
-	}
 
 	if (!task_dmabuf_records_preload(1))
 		return -ENOMEM;
@@ -460,7 +451,7 @@ int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task)
  */
 void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task)
 {
-	struct task_dma_buf_info *dmabuf_info;
+	struct task_dma_buf_info *dmabuf_info = task->dmabuf_info;
 	struct task_dma_buf_record *rec;
 
 	if (!static_key_enabled(&dmabuf_accounting_key))
@@ -468,12 +459,6 @@ void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task)
 
 	if (!dmabuf_info)
 		return;
-
-	if (IS_ERR(dmabuf_info)) {
-		pr_err("dmabuf accounting record is missing, error %ld\n",
-			PTR_ERR(dmabuf_info));
-		return;
-	}
 
 	spin_lock(&dmabuf_info->lock);
 	rec = find_task_dmabuf_record(dmabuf_info, dmabuf);
@@ -496,65 +481,45 @@ void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task)
 		free_task_dmabuf_record(rec);
 }
 
-int copy_dmabuf_info(u64 clone_flags, struct task_struct *task)
+static struct task_dma_buf_info *alloc_task_dma_buf_info(void)
 {
-	struct task_dma_buf_record *parent_rec, *child_rec;
-	struct task_dma_buf_info *new_dmabuf_info;
 	struct task_dma_buf_info *dmabuf_info;
+
+	dmabuf_info = kzalloc(sizeof(*dmabuf_info), GFP_KERNEL);
+	if (!dmabuf_info)
+		return NULL;
+
+	refcount_set(&dmabuf_info->refcnt, 1);
+	spin_lock_init(&dmabuf_info->lock);
+	INIT_LIST_HEAD(&dmabuf_info->dmabufs);
+
+	return dmabuf_info;
+}
+
+static struct task_dma_buf_info *dup_dma_buf_info(struct task_dma_buf_info *from)
+{
+	struct task_dma_buf_info *to;
+	struct task_dma_buf_record *from_rec, *to_rec;
+	unsigned int count;
 	int retries = 0;
-	size_t count;
 
-	if (!task_has_dma_buf_info(task))
-		return 0; /* Task is not supposed to have dmabuf_info */
+	/* Allocate now before locked section below. */
+	to = alloc_task_dma_buf_info();
+	if (!to)
+		return NULL;
 
-	dmabuf_info = get_task_dma_buf_info(current);
-	/* Original might not have dmabuf_info and that's fine */
-	if (IS_ERR(dmabuf_info))
-		dmabuf_info = NULL;
-
-	if (dmabuf_info && (clone_flags & (CLONE_VM | CLONE_FILES))
-						== (CLONE_VM | CLONE_FILES)) {
-		/*
-		 * Both MM and FD references to dmabufs are shared with the parent,
-		 * so we can share a RSS counter with the parent.
-		 */
-		refcount_inc(&dmabuf_info->refcnt);
-		set_task_dma_buf_info(task, dmabuf_info);
-
-		return 0;
-	}
-
-	/*
-	 * Allocate now even if !current->dmabuf_info instead of during
-	 * accounting to avoid races which can override task->dmabuf_info.
-	 */
-	new_dmabuf_info = kmalloc(sizeof(*new_dmabuf_info), GFP_KERNEL);
-	if (!new_dmabuf_info)
-		return -ENOMEM;
-
-	refcount_set(&new_dmabuf_info->refcnt, 1);
-	spin_lock_init(&new_dmabuf_info->lock);
-	INIT_LIST_HEAD(&new_dmabuf_info->dmabufs);
-	if (!dmabuf_info) {
-		new_dmabuf_info->dmabuf_count = 0;
-		new_dmabuf_info->rss = 0;
-		new_dmabuf_info->rss_hwm = 0;
-		set_task_dma_buf_info(task, new_dmabuf_info);
-
-		return 0;
-	}
 	/* Read required count racily, before obtaining dmabuf_info->lock */
-	count = READ_ONCE(dmabuf_info->dmabuf_count);
+	count = READ_ONCE(from->dmabuf_count);
 	if (!task_dmabuf_records_preload(count))
 		goto err_list_copy;
 
 retry:
-	spin_lock(&dmabuf_info->lock);
-	if (dmabuf_info->dmabuf_count > count) {
-		/* We don't have enough reserved records, allocate more. */
-		count = dmabuf_info->dmabuf_count;
+	spin_lock(&from->lock);
+	if (from->dmabuf_count > count) {
+		/* We don't have enough reserved records, allocate more */
+		count = from->dmabuf_count;
 
-		spin_unlock(&dmabuf_info->lock);
+		spin_unlock(&from->lock);
 		task_dmabuf_records_preload_end();
 		if (!task_dmabuf_records_preload(count))
 			goto err_list_copy;
@@ -569,30 +534,27 @@ retry:
 	}
 
 	/* All required records are reserved */
-	list_for_each_entry(parent_rec, &dmabuf_info->dmabufs, node) {
-		child_rec = alloc_task_dmabuf_record();
-		child_rec->dmabuf = parent_rec->dmabuf;
-		child_rec->refcnt = parent_rec->refcnt;
-		/* If mm is not shared we will dup it without calling mmap to account */
-		if (!(clone_flags & CLONE_VM))
-			atomic64_inc(&get_dmabuf_ext(child_rec->dmabuf)->nr_task_refs);
-		list_add(&child_rec->node, &new_dmabuf_info->dmabufs);
+	list_for_each_entry(from_rec, &from->dmabufs, node) {
+		to_rec = alloc_task_dmabuf_record();
+		WARN_ON(!to_rec);
+		to_rec->dmabuf = from_rec->dmabuf;
+		to_rec->refcnt = from_rec->refcnt;
+		list_add(&to_rec->node, &to->dmabufs);
+		atomic64_inc(&to_rec->dmabuf->nr_task_refs);
 	}
-	new_dmabuf_info->dmabuf_count = dmabuf_info->dmabuf_count;
-	new_dmabuf_info->rss = dmabuf_info->rss;
-	new_dmabuf_info->rss_hwm = dmabuf_info->rss;
-	spin_unlock(&dmabuf_info->lock);
-	set_task_dma_buf_info(task, new_dmabuf_info);
+	to->dmabuf_count = from->dmabuf_count;
+	to->rss = from->rss;
+	to->rss_hwm = to->rss;
+	spin_unlock(&from->lock);
 
 	trim_task_dmabuf_records_locked();
 	task_dmabuf_records_preload_end();
 
-	return 0;
+	return to;
 
 err_list_copy:
 	trim_task_dmabuf_records();
-	kfree(new_dmabuf_info);
-	set_task_dma_buf_info(task, NULL);
+	kfree(to);
 
 	return NULL;
 }
@@ -660,30 +622,21 @@ int copy_dmabuf_info(u64 clone_flags, struct task_struct *task)
 
 void put_dmabuf_info(struct task_struct *task)
 {
-	struct task_dma_buf_info *dmabuf_info = get_task_dma_buf_info(task);
-
-	if (!dmabuf_info)
+	if (!task->dmabuf_info)
 		return;
 
-	if (IS_ERR(dmabuf_info)) {
-		pr_err("dmabuf accounting record is missing, error %ld\n",
-			PTR_ERR(dmabuf_info));
-		return;
-	}
-
-	set_task_dma_buf_info(task, NULL);
-	if (!refcount_dec_and_test(&dmabuf_info->refcnt))
+	if (!refcount_dec_and_test(&task->dmabuf_info->refcnt))
 		return;
 
-	if (dmabuf_info->rss)
-		pr_alert("destroying task %d with non-zero dmabuf rss %u\n",
-			 task_pid_nr(task), dmabuf_info->rss);
+	if (task->dmabuf_info->rss)
+		pr_alert("destroying task with non-zero dmabuf rss %lu\n", task->dmabuf_info->rss);
 
-	if (!list_empty(&dmabuf_info->dmabufs) || dmabuf_info->dmabuf_count > 0)
-		pr_alert("destroying task %d with non-empty dmabuf list of size %zu\n",
-			 task_pid_nr(task), dmabuf_info->dmabuf_count);
+	if (!list_empty(&task->dmabuf_info->dmabufs) || task->dmabuf_info->dmabuf_count > 0)
+		pr_alert("destroying task with non-empty dmabuf list %zu %u\n",
+			 list_count_nodes(&task->dmabuf_info->dmabufs),
+			 task->dmabuf_info->dmabuf_count);
 
-	kfree(dmabuf_info);
+	kfree(task->dmabuf_info);
 }
 
 static int dma_buf_mmap_internal(struct file *file, struct vm_area_struct *vma)
@@ -1200,11 +1153,10 @@ err_alloc_file:
  */
 struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 {
-	struct dma_buf_ext *dmabuf_ext;
 	struct dma_buf *dmabuf;
 	struct dma_resv *resv = exp_info->resv;
 	struct file *file;
-	size_t alloc_size = sizeof(struct dma_buf_ext);
+	size_t alloc_size = sizeof(struct dma_buf);
 	int ret;
 
 	if (WARN_ON(!exp_info->priv || !exp_info->ops
@@ -1234,13 +1186,12 @@ struct dma_buf *dma_buf_export(const struct dma_buf_export_info *exp_info)
 	else
 		/* prevent &dma_buf[1] == dma_buf->resv */
 		alloc_size += 1;
-	dmabuf_ext = kzalloc(alloc_size, GFP_KERNEL);
-	if (!dmabuf_ext) {
+	dmabuf = kzalloc(alloc_size, GFP_KERNEL);
+	if (!dmabuf) {
 		ret = -ENOMEM;
 		goto err_file;
 	}
 
-	dmabuf = &dmabuf_ext->dmabuf;
 	dmabuf->priv = exp_info->priv;
 	dmabuf->ops = exp_info->ops;
 	dmabuf->size = exp_info->size;
@@ -1282,7 +1233,7 @@ err_sysfs:
 	file->private_data = NULL;
 	if (!resv)
 		dma_resv_fini(dmabuf->resv);
-	kfree(dmabuf_ext);
+	kfree(dmabuf);
 err_file:
 	fput(file);
 err_module:

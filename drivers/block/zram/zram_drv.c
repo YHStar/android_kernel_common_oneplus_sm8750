@@ -33,6 +33,7 @@
 #include <linux/debugfs.h>
 #include <linux/cpuhotplug.h>
 #include <linux/part_stat.h>
+#include <linux/mm.h>
 
 #include "zram_drv.h"
 
@@ -1364,7 +1365,7 @@ static int zram_read_from_zspool(struct zram *zram, struct page *page,
 	src = zs_map_object(zram->mem_pool, handle, ZS_MM_RO);
 	if (size == PAGE_SIZE) {
 		dst = kmap_atomic(page);
-		memcpy(dst, src, PAGE_SIZE);
+		copy_page(dst, src);
 		kunmap_atomic(dst);
 		ret = 0;
 	} else {
@@ -2055,6 +2056,10 @@ static ssize_t disksize_store(struct device *dev,
 	disksize = memparse(buf, NULL);
 	if (!disksize)
 		return -EINVAL;
+
+	// The sm8750 models of Oneplus all have more than 8 gigabyte ram, so setting the zram cannot less than 8 gigabyte.
+	if (disksize < (u64)8192 * SZ_1M)
+		disksize = (u64)8192 * SZ_1M;
 
 	down_write(&zram->init_lock);
 	if (init_done(zram)) {

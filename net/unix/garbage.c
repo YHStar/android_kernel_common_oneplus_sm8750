@@ -342,7 +342,7 @@ enum unix_recv_queue_lock_class {
 	U_RECVQ_LOCK_EMBRYO,
 };
 
-static void unix_collect_queue(struct unix_sock *u, struct sk_buff_head *hitlist)
+static void __maybe_unused unix_collect_queue(struct unix_sock *u, struct sk_buff_head *hitlist)
 {
 	skb_queue_splice_init(&u->sk.sk_receive_queue, hitlist);
 

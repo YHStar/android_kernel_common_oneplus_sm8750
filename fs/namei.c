@@ -3000,7 +3000,7 @@ static int may_delete(struct mnt_idmap *idmap, struct inode *dir,
  */
 static inline int may_create(struct mnt_idmap *idmap,
 			     struct inode *dir, struct dentry *child)
-{
+{	
 	audit_inode_child(dir, child, AUDIT_TYPE_CHILD_CREATE);
 	if (child->d_inode)
 		return -EEXIST;
