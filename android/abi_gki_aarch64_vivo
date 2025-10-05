@@ -85,6 +85,8 @@
   timer_reduce
   __traceiter_android_rvh_alloc_and_link_pwqs
   __traceiter_android_rvh_bpf_skb_load_bytes
+  __traceiter_android_rvh_balance_fair
+  __traceiter_android_rvh_before_pick_task_fair
   __traceiter_android_rvh_check_preempt_wakeup
   __traceiter_android_rvh_cpufreq_transition
   __traceiter_android_rvh_create_worker
@@ -156,6 +158,7 @@
   __traceiter_android_vh_look_around_migrate_folio
   __traceiter_android_vh_lruvec_add_folio
   __traceiter_android_vh_lruvec_del_folio
+  __traceiter_android_vh_mempool_alloc_skip_wait
   __traceiter_android_vh_mm_customize_ac
   __traceiter_android_vh_mm_customize_file_is_tiny
   __traceiter_android_vh_mm_customize_lru_add_dst
@@ -228,6 +231,8 @@
   __traceiter_workqueue_execute_start
   __tracepoint_android_rvh_alloc_and_link_pwqs
   __tracepoint_android_rvh_bpf_skb_load_bytes
+  __tracepoint_android_rvh_balance_fair
+  __tracepoint_android_rvh_before_pick_task_fair
   __tracepoint_android_rvh_check_preempt_wakeup
   __tracepoint_android_rvh_cpufreq_transition
   __tracepoint_android_rvh_create_worker
@@ -298,6 +303,7 @@
   __tracepoint_android_vh_look_around_migrate_folio
   __tracepoint_android_vh_lruvec_add_folio
   __tracepoint_android_vh_lruvec_del_folio
+  __tracepoint_android_vh_mempool_alloc_skip_wait
   __tracepoint_android_vh_mm_customize_ac
   __tracepoint_android_vh_mm_customize_file_is_tiny
   __tracepoint_android_vh_mm_customize_lru_add_dst
