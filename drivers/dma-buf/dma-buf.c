@@ -417,7 +417,9 @@ int dma_buf_account_task(struct dma_buf *dmabuf, struct task_struct *task)
 	struct task_dma_buf_info *dmabuf_info;
 	struct task_dma_buf_record *rec;
 
-	dmabuf_info = get_task_dma_buf_info(task);
+	if (!static_key_enabled(&dmabuf_accounting_key))
+		return 0;
+
 	if (!dmabuf_info)
 		return 0;
 
@@ -461,7 +463,9 @@ void dma_buf_unaccount_task(struct dma_buf *dmabuf, struct task_struct *task)
 	struct task_dma_buf_info *dmabuf_info;
 	struct task_dma_buf_record *rec;
 
-	dmabuf_info = get_task_dma_buf_info(task);
+	if (!static_key_enabled(&dmabuf_accounting_key))
+		return;
+
 	if (!dmabuf_info)
 		return;
 
@@ -590,7 +594,68 @@ err_list_copy:
 	kfree(new_dmabuf_info);
 	set_task_dma_buf_info(task, NULL);
 
-	return -ENOMEM;
+	return NULL;
+}
+
+int copy_dmabuf_info(u64 clone_flags, struct task_struct *task)
+{
+	struct task_dma_buf_info *parent_dmabuf_info = current->dmabuf_info;
+	struct task_dma_buf_info *child_dmabuf_info;
+	bool share_vm = clone_flags & CLONE_VM;
+	bool share_fs = clone_flags & CLONE_FILES;
+
+	if (!static_key_enabled(&dmabuf_accounting_key))
+		return 0;
+
+	/* kthreads are not supported */
+	if (task->flags & PF_KTHREAD) {
+		task->dmabuf_info = NULL;
+		return 0;
+	}
+
+	/*
+	 * Non-kthread direct descendants of pid 0 are roots of their own task_dma_buf_info trees,
+	 * even if they want to partially share with pid 0. Init does this. We assume no dmabuf
+	 * sharing will actually occur through pid 0.
+	 */
+	if (unlikely(!task_pid_nr(current))) {
+		task->dmabuf_info = alloc_task_dma_buf_info();
+		if (!task->dmabuf_info)
+			return -ENOMEM;
+
+		return 0;
+	}
+
+	/*
+	 * Partial sharing is not supported.
+	 * Children of such tasks are also not supported.
+	 */
+	if (share_vm != share_fs || !parent_dmabuf_info) {
+		task->dmabuf_info = NULL;
+		return 0;
+	}
+
+	/*
+	 * Full sharing: Both MM and FD references to dmabufs are shared with
+	 * the parent, so they can both share the same dmabuf_info.
+	 */
+	if (share_vm && share_fs) {
+		refcount_inc(&parent_dmabuf_info->refcnt);
+		task->dmabuf_info = parent_dmabuf_info;
+		return 0;
+	}
+
+	/*
+	 * No sharing: Both MM and FD references to dmabufs are duplicated in the child. We
+	 * duplicate the dmabuf accounting info into the child as well here.
+	 */
+	child_dmabuf_info = dup_dma_buf_info(parent_dmabuf_info);
+	if (!child_dmabuf_info)
+		return -ENOMEM;
+
+	task->dmabuf_info = child_dmabuf_info;
+
+	return 0;
 }
 
 void put_dmabuf_info(struct task_struct *task)
