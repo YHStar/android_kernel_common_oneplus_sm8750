@@ -546,6 +546,8 @@ static unsigned int __resolve_freq(struct cpufreq_policy *policy,
 	target_freq = clamp_val(target_freq, policy->min, policy->max);
 	trace_android_vh_cpufreq_resolve_freq(policy, &target_freq, old_target_freq);
 
+	target_freq = clamp_val(target_freq, policy->min, policy->max);
+
 	if (!policy->freq_table)
 		return target_freq;
 
