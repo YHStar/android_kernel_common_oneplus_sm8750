@@ -6244,9 +6244,9 @@ restart:
 
 	for_each_active_class(class) {
 		p = class->pick_next_task(rq);
+		trace_android_vh_chk_task(&p, rq);
 		if (p) {
 			scx_notify_pick_next_task(rq, p, class);
-			trace_android_vh_chk_task(&p, rq);
 			return p;
 		}
 	}
