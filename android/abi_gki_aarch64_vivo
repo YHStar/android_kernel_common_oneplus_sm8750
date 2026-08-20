@@ -138,6 +138,7 @@
   __traceiter_android_vh_count_workingset_refault
   __traceiter_android_vh_do_anonymous_page
   __traceiter_android_vh_do_async_mmap_readahead
+  __traceiter_android_vh_do_fault_around
   __traceiter_android_vh_do_group_exit
   __traceiter_android_vh_do_new_mount_fc
   __traceiter_android_vh_do_swap_page
@@ -166,6 +167,7 @@
   __traceiter_android_vh_look_around_migrate_folio
   __traceiter_android_vh_lruvec_add_folio
   __traceiter_android_vh_lruvec_del_folio
+  __traceiter_android_vh_map_order0_folio
   __traceiter_android_vh_mempool_alloc_skip_wait
   __traceiter_android_vh_mm_customize_ac
   __traceiter_android_vh_mm_customize_file_is_tiny
@@ -292,6 +294,7 @@
   __tracepoint_android_vh_count_workingset_refault
   __tracepoint_android_vh_do_anonymous_page
   __tracepoint_android_vh_do_async_mmap_readahead
+  __tracepoint_android_vh_do_fault_around
   __tracepoint_android_vh_do_group_exit
   __tracepoint_android_vh_do_new_mount_fc
   __tracepoint_android_vh_do_swap_page
@@ -319,6 +322,7 @@
   __tracepoint_android_vh_look_around_migrate_folio
   __tracepoint_android_vh_lruvec_add_folio
   __tracepoint_android_vh_lruvec_del_folio
+  __tracepoint_android_vh_map_order0_folio
   __tracepoint_android_vh_mempool_alloc_skip_wait
   __tracepoint_android_vh_mm_customize_ac
   __tracepoint_android_vh_mm_customize_file_is_tiny
