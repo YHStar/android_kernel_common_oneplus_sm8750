@@ -130,6 +130,9 @@ DECLARE_HOOK(android_vh_shrink_node_memcgs,
 DECLARE_HOOK(android_vh_should_memcg_bypass,
 	TP_PROTO(struct mem_cgroup *memcg, int priority, bool *bypass),
 	TP_ARGS(memcg, priority, bypass));
+DECLARE_HOOK(android_vh_isolate_folio_type,
+	TP_PROTO(int swappiness, int *type, int *tier, int *type_to_scan),
+	TP_ARGS(swappiness, type, tier, type_to_scan));
 DECLARE_HOOK(android_vh_direct_reclaim_begin,
 	TP_PROTO(int *prio),
 	TP_ARGS(prio));
@@ -150,6 +153,9 @@ DECLARE_HOOK(android_vh_mm_customize_pgdat_balanced,
 DECLARE_HOOK(android_vh_mm_customize_file_is_tiny,
 	TP_PROTO(unsigned int may_swap, int order, int highest_zoneidx, bool *file_is_tiny),
 	TP_ARGS(may_swap, order, highest_zoneidx, file_is_tiny));
+DECLARE_HOOK(android_vh_mm_get_zone_mark,
+	TP_PROTO(struct zone *zone, unsigned long *mark),
+	TP_ARGS(zone, mark));
 #endif /* _TRACE_HOOK_VMSCAN_H */
 /* This part must be outside protection */
 #include <trace/define_trace.h>
